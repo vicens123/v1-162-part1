@@ -1,17 +1,22 @@
-# rag_load_and_process/rag_module.py
-
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from langchain_community.document_loaders import DirectoryLoader, UnstructuredPDFLoader
 from langchain_community.vectorstores.pgvector import PGVector
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_openai import OpenAIEmbeddings
 
-def load_and_process_pdfs():
-    load_dotenv()
+# Cargar variables desde .env en la raíz del proyecto
+from pathlib import Path
+from dotenv import load_dotenv
 
+env_path = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(dotenv_path=env_path)
+
+
+def load_and_process_pdfs():
     loader = DirectoryLoader(
-        os.path.abspath("./pdf-documents"),  # corregido para entorno relativo a ejecución
+        os.path.abspath("./pdf-documents"),
         glob="**/*.pdf",
         use_multithreading=True,
         show_progress=True,
@@ -19,20 +24,26 @@ def load_and_process_pdfs():
         loader_cls=UnstructuredPDFLoader,
     )
     docs = loader.load()
+    print(f"📄 PDFs cargados: {len(docs)} documentos")
 
     embeddings = OpenAIEmbeddings(model='text-embedding-ada-002')
     text_splitter = SemanticChunker(embeddings=embeddings)
 
-    # ⚠️ Este paso depende del formato de `docs`
-    flattened_docs = docs  # Ya es una lista de Document
-    chunks = text_splitter.split_documents(flattened_docs)
+    chunks = text_splitter.split_documents(docs)
+    print(f"🧩 Fragmentos generados: {len(chunks)} chunks")
 
     vectorstore = PGVector.from_documents(
         documents=chunks,
         embedding=embeddings,
         collection_name="collection164",
-        connection_string="postgresql+psycopg://postgres@localhost:5432/database164",
+        connection_string=os.getenv("DATABASE_URL"),
         pre_delete_collection=True,
     )
+    print("✅ Chunks guardados en PGVector.")
 
     return vectorstore
+
+if __name__ == "__main__":
+    vectorstore = load_and_process_pdfs()
+    print("✅ Proceso completado.")
+    print(f"📦 Vectorstore creado: {vectorstore}")

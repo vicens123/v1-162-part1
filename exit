@@ -1,0 +1,34 @@
+warning: in the working copy of 'app/server.py', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/app/server.py b/app/server.py[m
+[1mindex 7ee36a9..81d7faf 100644[m
+[1m--- a/app/server.py[m
+[1m+++ b/app/server.py[m
+[36m@@ -1,19 +1,15 @@[m
+[32m+[m[32m# server.py[m
+[32m+[m
+ from fastapi import FastAPI[m
+[31m-from fastapi.responses import RedirectResponse[m
+ from langserve import add_routes[m
+[32m+[m[32mfrom app.rag_chain import rag_chain[m
+ [m
+ app = FastAPI()[m
+ [m
+[32m+[m[32m# Añade tu cadena RAG como endpoint[m
+[32m+[m[32madd_routes([m
+[32m+[m[32m    app,[m
+[32m+[m[32m    rag_chain,[m
+[32m+[m[32m    path="/rag"  # puedes cambiarlo si quieres[m
+[32m+[m[32m)[m
+ [m
+[31m-@app.get("/")[m
+[31m-async def redirect_root_to_docs():[m
+[31m-    return RedirectResponse("/docs")[m
+[31m-[m
+[31m-[m
+[31m-# Edit this to add the chain you want to add[m
+[31m-add_routes(app, NotImplemented)[m
+[31m-[m
+[31m-if __name__ == "__main__":[m
+[31m-    import uvicorn[m
+[31m-[m
+[31m-    uvicorn.run(app, host="0.0.0.0", port=8000)[m

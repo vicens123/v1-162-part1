@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  db:
+    image: ankane/pgvector
+    container_name: pgvector-db
+    restart: always
+    ports:
+      - "5433:5432"  # Puerto externo cambiado a 5433 para evitar conflicto
+    environment:
+      POSTGRES_DB: database164
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
+
