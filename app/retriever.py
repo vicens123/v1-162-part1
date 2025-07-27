@@ -1,27 +1,25 @@
-# retriever.py
+# app/retriever.py
 
 from langchain_community.vectorstores.pgvector import PGVector
 from langchain_openai import OpenAIEmbeddings
-from psycopg import connect
-import os
 from dotenv import load_dotenv
+import os
 
-load_dotenv()
+load_dotenv(override=True)
 
-connection = connect(
-    host=os.environ["DATABASE_HOST"],
-    dbname=os.environ["DATABASE_NAME"],
-    user=os.environ["DATABASE_USER"],
-    password=os.environ["DATABASE_PASSWORD"],
-    port=int(os.environ["DATABASE_PORT"]),
-)
+def get_retriever():
+    connection_string = (
+        f"postgresql+psycopg2://{os.environ['POSTGRES_USER']}:"
+        f"{os.environ['POSTGRES_PASSWORD']}@{os.environ['POSTGRES_HOST']}:"
+        f"{os.environ['POSTGRES_PORT']}/{os.environ['POSTGRES_DB']}"
+    )
 
-embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
 
-vectorstore = PGVector(
-    collection_name="rag_app_collection",
-    connection=connection,
-    embedding_function=embeddings
-)
+    vectorstore = PGVector(
+        collection_name="rag_app_collection",
+        connection_string=connection_string,
+        embedding_function=embeddings,
+    )
 
-retriever = vectorstore.as_retriever()
+    return vectorstore.as_retriever()
