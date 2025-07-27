@@ -6,4 +6,7 @@ __pycache__/
 
 # No subir configuración de Continue
 .continue/
-pdf-documents/
+
+# No subir archivos de configuración de la base de datos
+pdf-documents/*
+!pdf-documents/.gitkeep

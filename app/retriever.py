@@ -9,8 +9,8 @@ load_dotenv(override=True)
 
 def get_retriever():
     connection_string = (
-        f"postgresql+psycopg2://{os.environ['POSTGRES_USER']}:"
-        f"{os.environ['POSTGRES_PASSWORD']}@{os.environ['POSTGRES_HOST']}:"
+        f"postgresql+psycopg2://{os.environ['POSTGRES_USER']}:" 
+        f"{os.environ['POSTGRES_PASSWORD']}@{os.environ['POSTGRES_HOST']}:" 
         f"{os.environ['POSTGRES_PORT']}/{os.environ['POSTGRES_DB']}"
     )
 
@@ -23,3 +23,6 @@ def get_retriever():
     )
 
     return vectorstore.as_retriever()
+
+# 👇 Esta línea hace accesible el retriever directamente desde el import
+retriever = get_retriever()

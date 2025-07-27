@@ -1,22 +1,20 @@
 # app/rag_chain.py
 
-from typing import TypedDict
 from operator import itemgetter
 
-from langchain_core.runnables import RunnableMap, RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
-from langchain.prompts import ChatPromptTemplate
-from langchain_core.language_models import BaseChatModel
 from langchain_core.documents import Document
+from langchain.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 
+from app.retriever import get_retriever
 
-# 1️⃣ Estructura del input esperada
-class QuestionInput(TypedDict):
-    context: str
-    question: str
+from langchain_core.pydantic_v1 import BaseModel, Field
 
+class RagInput(BaseModel):
+    question: str = Field(..., description="The question you want to answer.")
 
-# 2️⃣ Prompt personalizado
 custom_rag_prompt = ChatPromptTemplate.from_template(
     """Answer the question using the provided context. If you don't know the answer, simply say you don't know.
 
@@ -28,26 +26,23 @@ Question:
 """
 )
 
-
-# 3️⃣ Formateo de los documentos: se usa en el retriever
 def format_docs(docs: list[Document]) -> str:
     return "\n\n".join(doc.page_content for doc in docs)
 
+def create_rag_chain():
 
-# 4️⃣ Constructor de la cadena RAG
-def create_rag_chain(retriever, llm: BaseChatModel):
-    """
-    Construye una RAG chain completa que recibe una pregunta, recupera contexto con el retriever
-    y genera la respuesta con el modelo de lenguaje (LLM).
-    """
+    retriever = get_retriever()
+    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+
     rag_chain = (
         {
             "context": RunnableLambda(lambda x: x["question"]) | retriever | RunnableLambda(format_docs),
-            "question": itemgetter("question")
+            "question": itemgetter("question"),
         }
         | custom_rag_prompt
         | llm
         | StrOutputParser()
     )
 
-    return rag_chain
+    return rag_chain.with_types(input_type=RagInput)
+
