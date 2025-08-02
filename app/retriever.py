@@ -1,5 +1,3 @@
-# app/retriever.py
-
 from langchain_community.vectorstores.pgvector import PGVector
 from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
@@ -22,7 +20,14 @@ def get_retriever():
         embedding_function=embeddings,
     )
 
-    return vectorstore.as_retriever()
+    # 🔧 más documentos + umbral de similitud más flexible
+    retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={
+            "k": 6,  # número de documentos
+            "score_threshold": 0.3  # permite más resultados, incluso menos relevantes
+        }
+    )
 
-# 👇 Esta línea hace accesible el retriever directamente desde el import
-retriever = get_retriever()
+    return retriever
+
