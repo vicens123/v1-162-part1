@@ -127,6 +127,10 @@ xlrd = "^2.0.2"
 xlsxwriter = "^3.2.5"
 yarl = "^1.20.1"
 psycopg2-binary = "^2.9.10"
+fastapi = "^0.116.1"
+uvicorn = "^0.35.0"
+langserve = "^0.0.36"
+sse-starlette = "^3.0.2"
 
 [build-system]
 requires = ["poetry-core"]
