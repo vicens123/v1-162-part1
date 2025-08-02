@@ -27,7 +27,7 @@ def get_retriever():
     retriever = vectorstore.as_retriever(
         search_type="similarity",
         search_kwargs={
-            "k": 8,                  # aumenta el nº de documentos similares
+            "k": 4,                  # aumenta el nº de documentos similares
             "score_threshold": 0.1   # baja el umbral para permitir más flexibilidad semántica
         }
     )

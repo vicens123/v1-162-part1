@@ -3,8 +3,10 @@
 from operator import itemgetter
 from typing import TypedDict
 
+from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 
 from app.retriever import get_retriever
@@ -26,14 +28,30 @@ Question:
 """
 )
 
-# 3️⃣ Crear la cadena RAG básica como en el ejemplo original
+# 3️⃣ Función para formatear los documentos y limitar tokens (aproximado)
+def format_docs(docs: list[Document], max_tokens: int = 3000) -> str:
+    output = []
+    current_tokens = 0
+
+    for doc in docs:
+        tokens = len(doc.page_content.split())  # Aproximación rápida
+        if current_tokens + tokens > max_tokens:
+            break
+        output.append(doc.page_content)
+        current_tokens += tokens
+
+    return "\n\n".join(output)
+
+# 4️⃣ Crear la cadena RAG con formateo de contexto limitado
 def create_rag_chain():
     retriever = get_retriever()
     llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
 
     rag_chain = (
         {
-            "context": itemgetter("question") | retriever,
+            "context": itemgetter("question")
+            | retriever
+            | RunnableLambda(lambda docs: format_docs(docs, max_tokens=3000)),
             "question": itemgetter("question"),
         }
         | custom_rag_prompt
@@ -42,3 +60,4 @@ def create_rag_chain():
     )
 
     return rag_chain.with_types(input_type=RagInput)
+
