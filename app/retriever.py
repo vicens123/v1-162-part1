@@ -18,7 +18,7 @@ def get_retriever():
 
     # 🧱 Vector store usando pgvector
     vectorstore = PGVector(
-        collection_name="rag_app_collection",
+        collection_name="collection164",
         connection_string=connection_string,
         embedding_function=embeddings,
     )
@@ -28,7 +28,7 @@ def get_retriever():
         search_type="similarity",
         search_kwargs={
             "k": 8,                  # aumenta el nº de documentos similares
-            "score_threshold": 0.2   # baja el umbral para permitir más flexibilidad semántica
+            "score_threshold": 0.1   # baja el umbral para permitir más flexibilidad semántica
         }
     )
 
