@@ -1,11 +1,8 @@
-"use client"
-
-import type React from "react"
-import { useState } from "react"
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import { useState } from "react";
 
 export default function RagChatApp() {
-  const [message, setMessage] = useState("")
+  const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([
     {
       type: "user",
@@ -15,48 +12,52 @@ export default function RagChatApp() {
       type: "ai",
       content: "The AI answer will be displayed here.",
     },
-  ])
+  ]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (message.trim()) {
-      setMessages([...messages, { type: "user", content: message }])
-      setMessage("")
+      setMessages([...messages, { type: "user", content: message }]);
+      setMessage("");
 
-      fetchEventSource('http://localhost:8000/rag', {
-        method: 'GET',
+      await fetchEventSource('http://localhost:8000/rag', {
+        method: 'POST',
         headers: {
-          'Content-Type': 'text/event-stream',
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ user_input: message }),
         onopen(response) {
           if (response.ok) {
-            console.log("Connection made ", response)
+            console.log("Connection with backend started");
           } else {
-            console.error(response)
+            console.error("Error connecting to backend", response);
           }
         },
         onmessage(event) {
           setMessages(prevMessages => [
             ...prevMessages,
             { type: "ai", content: event.data }
-          ])
+          ]);
         },
         onerror(err) {
-          console.error("Error from server ", err)
+          console.error("Streaming error", err);
         },
-      })
+      });
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200 py-4">
         <div className="max-w-4xl mx-auto px-4">
           <h1 className="text-xl font-semibold text-gray-900 text-center">A Basic RAG-FROM-PDFs LLM App</h1>
         </div>
       </header>
 
+      {/* Main Content */}
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6 flex flex-col">
+        {/* Messages Area */}
         <div className="flex-1 bg-white rounded-lg shadow-sm border border-gray-200 mb-6 overflow-hidden">
           <div className="h-96 overflow-y-auto p-6 space-y-4">
             {messages.map((msg, index) => (
@@ -71,21 +72,10 @@ export default function RagChatApp() {
                 <p className="text-gray-700 leading-relaxed">{msg.content}</p>
               </div>
             ))}
-
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <p className="text-sm font-medium text-gray-600 mb-2">Sources will be listed here:</p>
-              <div className="space-y-1">
-                <a href="#" className="text-blue-600 hover:text-blue-800 text-sm block">
-                  File1.pdf
-                </a>
-                <a href="#" className="text-blue-600 hover:text-blue-800 text-sm block">
-                  File2.pdf
-                </a>
-              </div>
-            </div>
           </div>
         </div>
 
+        {/* Input Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <textarea
@@ -107,6 +97,7 @@ export default function RagChatApp() {
         </form>
       </main>
 
+      {/* Footer */}
       <footer className="bg-white border-t border-gray-200 py-4">
         <div className="max-w-4xl mx-auto px-4">
           <p className="text-center text-sm text-gray-500">Footer text: Copyright, etc.</p>

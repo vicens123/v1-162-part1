@@ -1,7 +1,7 @@
 import os
 import asyncio
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from typing import Generator
@@ -32,12 +32,11 @@ add_routes(
     path="/rag"
 )
 
-@app.get("/rag")
-async def rag_endpoint(request: Request):
+@app.post("/rag")
+async def rag_endpoint(request: Request, user_input: str = Body(...)):
     async def event_generator() -> Generator[str, None, None]:
         for i in range(1, 6):
             await asyncio.sleep(1)
-            yield f"data: Message {i}\n\n"
+            yield f"data: Response for '{user_input}' part {i}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
