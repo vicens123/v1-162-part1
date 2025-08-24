@@ -36,3 +36,64 @@
     transform: rotate(360deg);
   }
 }
+
+/* Estilos globales */
+body {
+  margin: 0;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  line-height: 1.6;
+  background-color: #f8f9fa;
+}
+
+/* Estilo para enlaces */
+a {
+  color: #007bff;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+a:hover {
+  color: #0056b3;
+}
+
+/* Botones personalizados */
+button {
+  cursor: pointer;
+  border: none;
+}
+
+button:focus {
+  outline: none;
+}
+
+/* Estilos de texto */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+}
+
+p {
+  margin-bottom: 1rem;
+}
+
+/* Clases utilitarias */
+.rounded {
+  border-radius: 0.25rem;
+}
+
+.shadow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Clases específicas */
+.header {
+  background-color: #fff;
+  padding: 1rem;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.footer {
+  padding: 1rem;
+  background-color: #fff;
+  border-top: 1px solid #e9ecef;
+}
+
