@@ -1,6 +1,11 @@
+/*
+  The following Tailwind directives require Tailwind CSS and PostCSS setup.
+  If you see an "Unknown at rule @tailwind" error, ensure your build tool is configured for Tailwind.
+*/
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+```
 
 body {
   margin: 0;
