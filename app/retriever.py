@@ -1,35 +1,40 @@
+# app/retriever.py
+
+import os
+from dotenv import load_dotenv
+
 from langchain_community.vectorstores.pgvector import PGVector
 from langchain_openai import OpenAIEmbeddings
-from dotenv import load_dotenv
-import os
 
-load_dotenv(override=True)
+# ✅ Cargar variables de entorno y forzar que sobrescriba si ya hay definidas
+from pathlib import Path
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=True)
+
+# 🔍 Verificación explícita del nombre de la colección
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "rag_collection")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+print(f"🔁 COLLECTION_NAME from .env: {COLLECTION_NAME}")
 
 def get_retriever():
-    # 🔐 Conexión a PostgreSQL con pgvector
-    connection_string = (
-        f"postgresql+psycopg2://{os.environ['POSTGRES_USER']}:"
-        f"{os.environ['POSTGRES_PASSWORD']}@{os.environ['POSTGRES_HOST']}:"
-        f"{os.environ['POSTGRES_PORT']}/{os.environ['POSTGRES_DB']}"
-    )
+    # Usamos los embeddings de OpenAI
+    embedding_function = OpenAIEmbeddings()
 
-    # 🧠 Embeddings semánticos con modelo robusto
-    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-
-    # 🧱 Vector store usando pgvector
+    # Inicializamos el vectorstore con PGVector
     vectorstore = PGVector(
-        collection_name="collection164",
-        connection_string=connection_string,
-        embedding_function=embeddings,
+        collection_name=COLLECTION_NAME,
+        connection_string=DATABASE_URL,
+        embedding_function=embedding_function,
     )
 
-    # 🔍 Configuración del retriever para mayor tolerancia
+    # Usamos MMR para mejorar diversidad + flexibilidad de resultados
     retriever = vectorstore.as_retriever(
-        search_type="similarity",
+        search_type="mmr",
         search_kwargs={
-            "k": 4,                  # aumenta el nº de documentos similares
-            "score_threshold": 0.1   # baja el umbral para permitir más flexibilidad semántica
+            "k": 6,        # número final de chunks devueltos
+            "fetch_k": 40  # número de candidatos antes de aplicar MMR
         }
     )
 
     return retriever
+

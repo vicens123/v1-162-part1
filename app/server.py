@@ -1,12 +1,19 @@
 import os
 from dotenv import load_dotenv
 
+# Cargar variables de entorno
 load_dotenv(override=True)
 
-# Configuración de LangSmith desde el entorno
+# Configuración de LangSmith solo si las variables existen
 os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING_V2", "true")
-os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY", "")
-os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT", "kennedy-app-v1")
+
+langsmith_api_key = os.getenv("LANGCHAIN_API_KEY")
+if langsmith_api_key:
+    os.environ["LANGCHAIN_API_KEY"] = langsmith_api_key
+
+langsmith_project = os.getenv("LANGCHAIN_PROJECT")
+if langsmith_project:
+    os.environ["LANGCHAIN_PROJECT"] = langsmith_project
 
 
 from fastapi import FastAPI
