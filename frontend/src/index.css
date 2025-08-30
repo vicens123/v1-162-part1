@@ -1,21 +1,39 @@
-/*
-  The following Tailwind directives require Tailwind CSS and PostCSS setup.
-  If you see an "Unknown at rule @tailwind" error, ensure your build tool is configured for Tailwind.
-*/
+/* Tailwind directives */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-```
 
+/* Global resets and typography */
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Use Tailwind's font-sans (Inter) */
+html {
+  @apply font-sans;
+}
+
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Reusable component classes */
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded font-bold transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 active:translate-y-[1px];
+  }
+  .btn-primary {
+    @apply btn text-white bg-neutral-700 hover:bg-neutral-800 focus:ring-neutral-500;
+  }
+  .btn-ghost {
+    @apply btn text-neutral-800 dark:text-neutral-200 bg-transparent hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:ring-neutral-400;
+  }
+  .input {
+    @apply w-full p-2 rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500;
+  }
+  .card {
+    @apply bg-white dark:bg-neutral-900 border border-neutral-200/70 dark:border-neutral-800/70 rounded-xl shadow;
+  }
 }
