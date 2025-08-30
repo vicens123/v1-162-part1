@@ -26,6 +26,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const backendStaticBase = useMemo(() => {
     try {
@@ -35,6 +37,16 @@ function App() {
       return 'http://localhost:8080/rag/static';
     }
   }, []);
+
+  const ORIGIN = useMemo(() => {
+    try {
+      const u = new URL(API_BASE);
+      return `${u.protocol}//${u.host}`;
+    } catch {
+      return 'http://localhost:8080';
+    }
+  }, []);
+  const UPLOAD_URL = `${ORIGIN}/upload`;
 
   const computePdfLink = useCallback(
     (src?: string) => {
@@ -159,6 +171,25 @@ function App() {
     }
   }, [input, loading]);
 
+  const handleUploadFiles = useCallback(async () => {
+    if (!selectedFiles || uploading) return;
+    setError(null);
+    setUploading(true);
+    const formData = new FormData();
+    Array.from(selectedFiles).forEach((file) => formData.append('files', file));
+    try {
+      const response = await fetch(UPLOAD_URL, { method: 'POST', body: formData });
+      if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+      await response.json();
+      setSelectedFiles(null);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || 'Error subiendo los archivos');
+    } finally {
+      setUploading(false);
+    }
+  }, [selectedFiles, uploading, UPLOAD_URL]);
+
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -239,6 +270,22 @@ function App() {
                   Cancelar
                 </button>
               )}
+            </div>
+            <div className="p-4 bg-gray-50 mt-4 rounded">
+              <div className="text-sm font-semibold mb-2">Subir PDFs</div>
+              <input
+                type="file"
+                accept=".pdf"
+                multiple
+                onChange={(e) => setSelectedFiles(e.target.files)}
+              />
+              <button
+                className="ml-2 mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+                onClick={handleUploadFiles}
+                disabled={uploading || !selectedFiles || selectedFiles.length === 0}
+              >
+                {uploading ? 'Subiendo…' : 'Upload PDFs'}
+              </button>
             </div>
           </div>
         </div>

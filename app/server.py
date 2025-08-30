@@ -17,6 +17,10 @@ if langsmith_project:
 
 
 from fastapi import FastAPI
+from fastapi import UploadFile, File, HTTPException
+from typing import List
+from pathlib import Path
+import shutil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from langserve import add_routes
@@ -43,3 +47,26 @@ add_routes(
 
 # Servir ficheros estáticos (PDFs)
 app.mount("/rag/static", StaticFiles(directory="./pdf-documents"), name="static")
+
+
+# Endpoint para subir PDFs y guardarlos en ./pdf-documents
+UPLOAD_DIR = Path("./pdf-documents")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.post("/upload")
+async def upload_pdfs(files: List[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=400, detail="No se enviaron archivos")
+
+    saved: list[str] = []
+    for file in files:
+        name = Path(file.filename).name
+        if not name.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail=f"Solo PDFs permitidos: {name}")
+        dest = UPLOAD_DIR / name
+        with dest.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        saved.append(str(dest))
+
+    return {"saved": saved, "count": len(saved)}
