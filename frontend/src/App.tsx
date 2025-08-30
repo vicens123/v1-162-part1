@@ -28,6 +28,9 @@ function App() {
   const abortRef = useRef<AbortController | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
+  const [reindexMode, setReindexMode] = useState<'update' | 'full' | null>(null);
+  const [ingestInfo, setIngestInfo] = useState<string | null>(null);
 
   const backendStaticBase = useMemo(() => {
     try {
@@ -47,6 +50,20 @@ function App() {
     }
   }, []);
   const UPLOAD_URL = `${ORIGIN}/upload`;
+  const INGEST_URL = `${ORIGIN}/admin/ingest`;
+
+  const Spinner = () => (
+    <svg
+      className="animate-spin h-4 w-4 mr-2 text-white inline"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      aria-hidden
+    >
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+    </svg>
+  );
 
   const computePdfLink = useCallback(
     (src?: string) => {
@@ -182,9 +199,10 @@ function App() {
       if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
       await response.json();
       // Trigger reingest in update mode to avoid duplicates
-      const ingest = await fetch(`${ORIGIN}/admin/ingest?mode=update`, { method: 'POST' });
+      const ingest = await fetch(`${INGEST_URL}?mode=update`, { method: 'POST' });
       if (!ingest.ok) throw new Error(`Ingest failed: ${ingest.status}`);
-      await ingest.json();
+      const data = await ingest.json();
+      setIngestInfo(`Reingesta (update) completada: archivos=${data.files}, chunks=${data.added_chunks}, borrados=${data.deleted}`);
       setSelectedFiles(null);
     } catch (e: any) {
       console.error(e);
@@ -192,7 +210,27 @@ function App() {
     } finally {
       setUploading(false);
     }
-  }, [selectedFiles, uploading, UPLOAD_URL]);
+  }, [selectedFiles, uploading, UPLOAD_URL, INGEST_URL]);
+
+  const handleReindex = useCallback(async (mode: 'update' | 'full') => {
+    if (reindexing) return;
+    setError(null);
+    setIngestInfo(null);
+    setReindexMode(mode);
+    setReindexing(true);
+    try {
+      const res = await fetch(`${INGEST_URL}?mode=${mode}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`Ingest failed: ${res.status}`);
+      const data = await res.json();
+      setIngestInfo(`Reindex (${mode}) ok: archivos=${data.files}, chunks=${data.added_chunks}, borrados=${data.deleted}`);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || 'Error en reindexado');
+    } finally {
+      setReindexing(false);
+      setReindexMode(null);
+    }
+  }, [reindexing, INGEST_URL]);
 
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -222,6 +260,7 @@ function App() {
           </div>
           <div className="p-4 bg-gray-100">
             {error && <div className="text-red-600 text-sm mb-2">{error}</div>}
+            {ingestInfo && <div className="text-green-700 text-sm mb-2">{ingestInfo}</div>}
             <textarea
               className="form-textarea w-full p-2 border rounded text-gray-700 bg-white border-gray-300 resize-none h-auto"
               placeholder="Escribe tu pregunta. Shift+Enter para nueva línea, Enter para enviar."
@@ -263,6 +302,24 @@ function App() {
               >
                 {uploading ? 'Subiendo…' : 'Upload PDFs'}
               </button>
+              <div className="mt-4">
+                <div className="text-sm font-semibold mb-2">Reindexar</div>
+                <button
+                  className="bg-gray-700 hover:bg-gray-800 text-white font-bold py-1 px-3 rounded disabled:opacity-50 mr-2"
+                  onClick={() => handleReindex('update')}
+                  disabled={reindexing}
+                >
+                  {reindexing && reindexMode === 'update' ? (<><Spinner />Reindexando…</>) : 'Reindexar (update)'}
+                </button>
+                <button
+                  className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-1 px-3 rounded disabled:opacity-50"
+                  onClick={() => handleReindex('full')}
+                  disabled={reindexing}
+                  title="Elimina la colección y reingesta todo"
+                >
+                  {reindexing && reindexMode === 'full' ? (<><Spinner />Reindexando…</>) : 'Reindexar (full)'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
