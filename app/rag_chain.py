@@ -69,16 +69,19 @@ def _doc_to_source_info(doc: Document) -> dict:
 
 
 # 6) Cadena RAG compatible con LangServe (answer + sources)
-def create_rag_chain():
-    # LLM con streaming (tu configuración)
-    llm = ChatOpenAI(
-        model="gpt-4-1106-preview",
-        temperature=0,
-        streaming=True,
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
-    )
+def create_rag_chain(retriever=None, llm=None):
+    # LLM con streaming (inyectable para tests; configurable por env)
+    if llm is None:
+        llm = ChatOpenAI(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            temperature=0,
+            streaming=True,
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+        )
 
-    retriever = get_retriever()
+    # Retriever inyectable; si no se pasa, usamos el por defecto
+    if retriever is None:
+        retriever = get_retriever()
 
     # Paso A: en paralelo → recuperar docs y pasar la pregunta
     initial = RunnableParallel(

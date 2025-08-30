@@ -4,9 +4,26 @@ __pycache__/
 *.pyd
 .env
 
+# Env files (anywhere)
+.env.*
+**/.env
+**/.env.*
+!.env.example
+
 # No subir configuración de Continue
 .continue/
 
 # No subir archivos de configuración de la base de datos
 pdf-documents/*
 !pdf-documents/.gitkeep
+
+# Editors and logs
+.vscode/
+.idea/
+*.log
+logs/
+log/
+
+# Python virtualenvs
+.venv/
+venv/
