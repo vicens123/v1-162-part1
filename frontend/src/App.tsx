@@ -1,5 +1,5 @@
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import './App.css';
 
@@ -31,6 +31,32 @@ function App() {
   const [reindexing, setReindexing] = useState(false);
   const [reindexMode, setReindexMode] = useState<'update' | 'full' | null>(null);
   const [ingestInfo, setIngestInfo] = useState<string | null>(null);
+  const [theme, setTheme] = useState<'system' | 'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+    return 'system';
+  });
+
+  // Tailwind darkMode: 'class' — aplica tema según preferencia o sistema
+  useEffect(() => {
+    const root = document.documentElement;
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const useDark = theme === 'dark' || (theme === 'system' && mql.matches);
+      root.classList.toggle('dark', useDark);
+    };
+    apply();
+    if (theme === 'system') {
+      mql.addEventListener('change', apply);
+      return () => mql.removeEventListener('change', apply);
+    }
+  }, [theme]);
+
+  const cycleTheme = () => {
+    const next = theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system';
+    setTheme(next);
+    localStorage.setItem('theme', next);
+  };
 
   const backendStaticBase = useMemo(() => {
     try {
@@ -252,29 +278,38 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <header className="bg-white text-gray-900 font-bold text-center p-4 shadow-sm">
-        RAG from PDFs
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 flex flex-col transition-colors">
+      <header className="bg-white/70 dark:bg-neutral-900/70 backdrop-blur text-neutral-900 dark:text-neutral-100 p-4 shadow-sm border-b border-neutral-200/60 dark:border-neutral-800/60 transition-colors">
+        <div className="container mx-auto max-w-6xl flex items-center justify-between">
+          <div className="font-semibold">RAG from PDFs</div>
+          <button
+            onClick={cycleTheme}
+            className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded"
+            title={`Tema: ${theme}`}
+          >
+            {theme === 'system' ? 'Sistema' : theme === 'dark' ? 'Oscuro' : 'Claro'}
+          </button>
+        </div>
       </header>
-      <main className="flex-grow container mx-auto p-4 flex-col">
-        <div className="flex-grow bg-white shadow overflow-hidden sm:rounded-lg my-4">
+      <main className="flex-grow container mx-auto p-4 flex-col max-w-6xl">
+        <div className="flex-grow bg-white dark:bg-neutral-900 shadow overflow-hidden rounded-xl my-4 border border-neutral-200/70 dark:border-neutral-800/70 transition-colors">
           <div className="p-4 space-y-3">
             {messages.length === 0 && (
               <div className="text-gray-500 text-sm">Haz una pregunta sobre los PDFs cargados.</div>
             )}
             {messages.map((m, i) => (
-              <div key={i} className={`p-3 rounded-lg ${m.role === 'user' ? 'bg-blue-50 text-gray-800' : 'bg-gray-100 text-gray-800'}`}>
-                <div className="text-xs mb-1 font-semibold uppercase tracking-wide text-gray-500">{m.role}</div>
+              <div key={i} className={`p-3 rounded-lg transition-colors ${m.role === 'user' ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100'}`}>
+                <div className="text-xs mb-1 font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{m.role}</div>
                 <div className="whitespace-pre-wrap">{m.content}</div>
                 {/* Sources ocultos en la UI por petición */}
               </div>
             ))}
           </div>
-          <div className="p-4 bg-gray-100">
-            {error && <div className="text-red-600 text-sm mb-2">{error}</div>}
-            {ingestInfo && <div className="text-green-700 text-sm mb-2">{ingestInfo}</div>}
+          <div className="p-4 bg-neutral-100 dark:bg-neutral-800 transition-colors">
+            {error && <div className="text-red-600 dark:text-red-400 text-sm mb-2">{error}</div>}
+            {ingestInfo && <div className="text-green-700 dark:text-green-400 text-sm mb-2">{ingestInfo}</div>}
             <textarea
-              className="form-textarea w-full p-2 border rounded text-gray-700 bg-white border-gray-300 resize-none h-auto"
+              className="form-textarea w-full p-2 border rounded text-neutral-900 dark:text-neutral-100 bg-white dark:bg-neutral-900 border-neutral-300 dark:border-neutral-700 resize-none h-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Escribe tu pregunta. Shift+Enter para nueva línea, Enter para enviar."
               rows={3}
               value={input}
@@ -286,20 +321,20 @@ function App() {
               <button
                 onClick={handleSend}
                 disabled={loading || !input.trim()}
-                className="bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out"
+                className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors duration-150 ease-in-out"
               >
                 {loading ? 'Enviando…' : 'Enviar'}
               </button>
               {loading && (
                 <button
                   onClick={() => abortRef.current?.abort()}
-                  className="text-gray-600 hover:text-gray-800 text-sm"
+                  className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors text-sm"
                 >
                   Cancelar
                 </button>
               )}
             </div>
-            <div className="p-4 bg-gray-50 mt-4 rounded">
+            <div className="p-4 bg-neutral-50 dark:bg-neutral-900 mt-4 rounded transition-colors">
               <div className="text-sm font-semibold mb-2">Subir PDFs</div>
               <input
                 type="file"
@@ -309,7 +344,7 @@ function App() {
                 disabled={uploading}
               />
               <button
-                className="ml-2 mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+                className="mt-2 bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors"
                 onClick={handleUploadFiles}
                 disabled={uploading || !selectedFiles || selectedFiles.length === 0}
               >
@@ -318,14 +353,14 @@ function App() {
               <div className="mt-4">
                 <div className="text-sm font-semibold mb-2">Reindexar</div>
                 <button
-                  className="bg-gray-700 hover:bg-gray-800 text-white font-bold py-1 px-3 rounded disabled:opacity-50 mr-2"
+                  className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors mr-2"
                   onClick={() => handleReindex('update')}
                   disabled={reindexing}
                 >
                   {reindexing && reindexMode === 'update' ? (<><Spinner />Reindexando…</>) : 'Reindexar (update)'}
                 </button>
                 <button
-                  className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-1 px-3 rounded disabled:opacity-50"
+                  className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors"
                   onClick={() => handleReindex('full')}
                   disabled={reindexing}
                   title="Elimina la colección y reingesta todo"
@@ -337,7 +372,7 @@ function App() {
           </div>
         </div>
       </main>
-      <footer className="bg-white text-gray-700 text-center p-4 text-xs border-t border-gray-200">
+      <footer className="bg-white/70 dark:bg-neutral-900/70 backdrop-blur text-neutral-700 dark:text-neutral-300 text-center p-4 text-xs border-t border-neutral-200/60 dark:border-neutral-800/60 transition-colors">
         Backend: {API_BASE} | PDFs: {backendStaticBase}
       </footer>
     </div>
