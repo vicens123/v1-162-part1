@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from langserve import add_routes
 from app.rag_chain import create_rag_chain
+from rag_load_and_process.rag_load_and_process import load_and_process_pdfs
 
 app = FastAPI()
 
@@ -70,3 +71,15 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):
         saved.append(str(dest))
 
     return {"saved": saved, "count": len(saved)}
+
+
+@app.post("/admin/ingest")
+def admin_ingest(mode: str = "update"):
+    """Reingesta de PDFs con modos: full|update|append."""
+    try:
+        result = load_and_process_pdfs(mode=mode)
+        return {"status": "ok", **result}
+    except AssertionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en ingesta: {e}")

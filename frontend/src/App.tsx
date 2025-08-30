@@ -181,6 +181,10 @@ function App() {
       const response = await fetch(UPLOAD_URL, { method: 'POST', body: formData });
       if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
       await response.json();
+      // Trigger reingest in update mode to avoid duplicates
+      const ingest = await fetch(`${ORIGIN}/admin/ingest?mode=update`, { method: 'POST' });
+      if (!ingest.ok) throw new Error(`Ingest failed: ${ingest.status}`);
+      await ingest.json();
       setSelectedFiles(null);
     } catch (e: any) {
       console.error(e);
@@ -212,34 +216,7 @@ function App() {
               <div key={i} className={`p-3 rounded-lg ${m.role === 'user' ? 'bg-blue-50 text-gray-800' : 'bg-gray-100 text-gray-800'}`}>
                 <div className="text-xs mb-1 font-semibold uppercase tracking-wide text-gray-500">{m.role}</div>
                 <div className="whitespace-pre-wrap">{m.content}</div>
-                {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
-                  <div className="text-xs mt-4">
-                    <hr className="border-b my-3 border-gray-200" />
-                    <div className="font-semibold mb-1">Sources:</div>
-                    <ul className="list-disc ml-5 space-y-1">
-                      {m.sources.map((s, idx) => {
-                        const href = computePdfLink(s.source);
-                        const label = s.title || s.source || 'Documento';
-                        return (
-                          <li key={idx}>
-                            {href ? (
-                              <a
-                                href={href}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-blue-600 hover:text-blue-700"
-                              >
-                                {label}{s.page ? ` (p. ${s.page})` : ''}
-                              </a>
-                            ) : (
-                              <span>{label}{s.page ? ` (p. ${s.page})` : ''}</span>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
+                {/* Sources ocultos en la UI por petición */}
               </div>
             ))}
           </div>
