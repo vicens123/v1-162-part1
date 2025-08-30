@@ -1,16 +1,16 @@
+import os
 import pytest
 import psycopg
 from langchain_community.vectorstores.pgvector import PGVector
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from app.rag_chain import create_rag_chain
-from langchain_openai import ChatOpenAI
 
 from dotenv import load_dotenv
 load_dotenv()
 
 
 # Puerto correcto del contenedor pgvector
-CONNECTION_STRING = "postgresql+psycopg://postgres:postgres@localhost:5433/database164"
+CONNECTION_STRING = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5433/database164")
 COLLECTION_NAME = "rag_collection"
 
 @pytest.fixture(scope="module")
@@ -18,13 +18,13 @@ def retriever():
     vectorstore = PGVector(
         collection_name=COLLECTION_NAME,
         connection_string=CONNECTION_STRING,
-        embedding_function=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        embedding_function=OpenAIEmbeddings(model=os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")),
     )
     return vectorstore.as_retriever()
 
 @pytest.fixture(scope="module")
 def llm():
-    return ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+    return ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), temperature=0)
 
 def test_pgvector_extension_installed():
     with psycopg.connect("dbname=database164 user=postgres password=postgres host=localhost port=5433") as conn:
@@ -42,8 +42,12 @@ def test_embeddings_table_not_empty():
 
 def test_rag_chain_response(retriever, llm):
     rag_chain = create_rag_chain(retriever, llm)
-    question = "¿como murio Kennedy?"
-    response = rag_chain.invoke({"question": question})
-    assert isinstance(response, str), "❌ La respuesta no es una cadena de texto."
-    assert len(response.strip()) > 0, "❌ La respuesta está vacía."
+    question = "¿Cómo murió Kennedy?"
+    result = rag_chain.invoke({"question": question})
+    # La cadena devuelve un dict con 'answer' y 'sources'
+    assert isinstance(result, dict), "❌ La salida de la cadena debe ser un dict."
+    assert "answer" in result, "❌ Falta el campo 'answer' en la salida."
+    assert isinstance(result["answer"], str), "❌ 'answer' debe ser una cadena."
+    assert "sources" in result, "❌ Falta el campo 'sources' en la salida."
+    assert isinstance(result["sources"], list), "❌ 'sources' debe ser una lista."
 

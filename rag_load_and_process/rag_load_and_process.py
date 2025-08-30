@@ -13,6 +13,8 @@ load_dotenv(dotenv_path=env_path)
 
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "rag_collection")
 DATABASE_URL = os.getenv("DATABASE_URL")
+EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
+DELETE_COLLECTION = os.getenv("DELETE_COLLECTION", "true").lower() in {"1","true","yes","y"}
 
 
 def load_and_process_pdfs():
@@ -28,7 +30,8 @@ def load_and_process_pdfs():
     docs = loader.load()
     print(f"📄 PDFs cargados: {len(docs)} documentos")
 
-    embeddings = OpenAIEmbeddings(model='text-embedding-ada-002')
+    # OpenAI embeddings (mismo modelo que el retriever para consistencia)
+    embeddings = OpenAIEmbeddings(model=EMBEDDINGS_MODEL)
     text_splitter = SemanticChunker(embeddings=embeddings)
 
     chunks = text_splitter.split_documents(docs)
@@ -42,7 +45,7 @@ def load_and_process_pdfs():
         embedding=embeddings,
         collection_name=COLLECTION_NAME,         # 🟢 Usamos la variable del entorno
         connection_string=DATABASE_URL,
-        pre_delete_collection=True,
+        pre_delete_collection=DELETE_COLLECTION,
     )
 
     print("✅ Chunks guardados en PGVector.")
