@@ -1,7 +1,7 @@
 from app.retriever import get_retriever
 
 retriever = get_retriever()
-query = "¿El presidente JFK se reúne con el general Curtis?"
+query = "¿quien fue jordi pujol?"
 
 docs = retriever.get_relevant_documents(query)
 

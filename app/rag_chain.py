@@ -21,26 +21,33 @@ class RagInput(TypedDict):
 
 # 2) Prompt central (¡nombre consistente!)
 rag_prompt = ChatPromptTemplate.from_template(
-    """Eres un asistente de QA sobre documentos.
-Usa EXCLUSIVAMENTE el contexto proporcionado.
-Si la respuesta no está en el contexto, responde EXACTAMENTE: "No lo sé".
-No añadas notas, advertencias, fuentes ni epílogos.
+    """Eres un asistente que responde preguntas basándose únicamente en el CONTEXTO dado.
+Reglas:
+1) Usa exclusivamente el CONTEXTO proporcionado.
+2) Si hay información suficiente en el CONTEXTO para responder, contesta en español de forma directa y concisa (1–3 frases). No hace falta citar literalmente: puedes resumir fielmente.
+3) Si no hay información suficiente en el CONTEXTO para responder, escribe EXACTAMENTE: No lo sé
+4) No inventes ni añadas notas, advertencias, fuentes ni epílogos.
 
-Contexto:
+CONTEXTO:
 {context}
 
-Pregunta:
+PREGUNTA:
 {question}
 """
 )
 
 
 # 3) Formateo de documentos (límite aproximado por nº palabras)
-def format_docs(docs: list[Document], max_tokens: int = 3000) -> str:
+def format_docs(docs: list[Document], max_words: int | None = None) -> str:
+    if max_words is None:
+        try:
+            max_words = int(os.getenv("MAX_CONTEXT_WORDS", "6000"))
+        except ValueError:
+            max_words = 6000
     chunks, used = [], 0
     for d in docs:
         words = len(d.page_content.split())
-        if used + words > max_tokens:
+        if used + words > max_words:
             break
         chunks.append(d.page_content)
         used += words
@@ -52,7 +59,7 @@ def _pack_with_context(x: dict) -> dict:
     raw_docs: list[Document] = x["raw_docs"]
     return {
         "question": x["question"],
-        "context": format_docs(raw_docs, max_tokens=3000),
+        "context": format_docs(raw_docs),
         "raw_docs": raw_docs,
     }
 
@@ -73,7 +80,7 @@ def create_rag_chain(retriever=None, llm=None):
     # LLM con streaming (inyectable para tests; configurable por env)
     if llm is None:
         llm = ChatOpenAI(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
             temperature=0,
             streaming=True,
             openai_api_key=os.getenv("OPENAI_API_KEY"),

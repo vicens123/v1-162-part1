@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from langserve import add_routes
 from app.rag_chain import create_rag_chain
+from app.retriever import get_retriever
 from rag_load_and_process.rag_load_and_process import load_and_process_pdfs, ensure_collection
 
 app = FastAPI()
@@ -95,3 +96,23 @@ def healthz():
         return {"status": "ok" if coll.get("db_ok") else "degraded", **coll}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Healthcheck error: {e}")
+
+
+@app.get("/rag/debug/retrieve")
+def debug_retrieve(question: str):
+    """Devuelve documentos recuperados y tamaño de contexto para depuración."""
+    retriever = get_retriever()
+    docs = retriever.invoke(question)
+    context = "\n\n".join(d.page_content for d in docs)
+    return {
+        "question": question,
+        "docs": [
+            {
+                "content_preview": d.page_content[:400],
+                "metadata": d.metadata,
+            }
+            for d in docs
+        ],
+        "context_words": len(context.split()),
+        "count": len(docs),
+    }

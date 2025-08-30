@@ -17,6 +17,17 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # Uso exclusivo de OpenAI Embeddings para consistencia
 EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
 
+# Configuración de búsqueda del retriever
+RAG_SEARCH_TYPE = os.getenv("RAG_SEARCH_TYPE", "similarity").lower()  # similarity | mmr | similarity_score_threshold
+try:
+    RAG_K = int(os.getenv("RAG_K", "10"))
+except ValueError:
+    RAG_K = 10
+try:
+    RAG_FETCH_K = int(os.getenv("RAG_FETCH_K", "60"))
+except ValueError:
+    RAG_FETCH_K = 60
+
 def _make_embeddings():
     return OpenAIEmbeddings(model=EMBEDDINGS_MODEL)
 
@@ -33,13 +44,14 @@ def get_retriever():
         embedding_function=embedding_function,
     )
 
-    # Usamos MMR para mejorar diversidad + flexibilidad de resultados
+    # Configurar kwargs según el tipo de búsqueda
+    search_kwargs = {"k": RAG_K}
+    if RAG_SEARCH_TYPE == "mmr":
+        search_kwargs["fetch_k"] = RAG_FETCH_K
+
     retriever = vectorstore.as_retriever(
-        search_type="mmr",
-        search_kwargs={
-            "k": 6,        # número final de chunks devueltos
-            "fetch_k": 40  # número de candidatos antes de aplicar MMR
-        }
+        search_type=RAG_SEARCH_TYPE,
+        search_kwargs=search_kwargs,
     )
 
     return retriever
