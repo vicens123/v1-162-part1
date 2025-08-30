@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from langserve import add_routes
 from app.rag_chain import create_rag_chain
-from rag_load_and_process.rag_load_and_process import load_and_process_pdfs
+from rag_load_and_process.rag_load_and_process import load_and_process_pdfs, ensure_collection
 
 app = FastAPI()
 
@@ -77,9 +77,21 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):
 def admin_ingest(mode: str = "update"):
     """Reingesta de PDFs con modos: full|update|append."""
     try:
+        # Asegurar que la colección exista antes de ingestar
+        coll = ensure_collection(os.getenv("DATABASE_URL"), os.getenv("COLLECTION_NAME", "rag_collection"))
         result = load_and_process_pdfs(mode=mode)
-        return {"status": "ok", **result}
+        return {"status": "ok", "collection": coll, **result}
     except AssertionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en ingesta: {e}")
+
+
+@app.get("/healthz")
+def healthz():
+    """Healthcheck de base de datos y colección."""
+    try:
+        coll = ensure_collection(os.getenv("DATABASE_URL"), os.getenv("COLLECTION_NAME", "rag_collection"))
+        return {"status": "ok" if coll.get("db_ok") else "degraded", **coll}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Healthcheck error: {e}")

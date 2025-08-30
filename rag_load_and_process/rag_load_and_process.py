@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import Dict, Any
 from dotenv import load_dotenv
 
-from langchain_community.document_loaders import UnstructuredPDFLoader
+from langchain_community.document_loaders import UnstructuredPDFLoader, PyPDFLoader
 from langchain_community.vectorstores.pgvector import PGVector
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_openai import OpenAIEmbeddings
 import psycopg
+import uuid
 
 # Cargar variables desde .env en la raíz del proyecto
 env_path = Path(__file__).resolve().parents[1] / ".env"
@@ -28,14 +29,14 @@ def _delete_by_doc_id(connection_string: str, collection_name: str, doc_id: str)
     dsn = _psycopg_conn_str(connection_string)
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM langchain_pg_collection WHERE name = %s", (collection_name,))
+            cur.execute("SELECT uuid FROM langchain_pg_collection WHERE name = %s", (collection_name,))
             row = cur.fetchone()
             if not row:
                 return 0
-            coll_id = row[0]
+            coll_uuid = row[0]
             cur.execute(
                 "DELETE FROM langchain_pg_embedding WHERE collection_id = %s AND cmetadata->>'doc_id' = %s",
-                (coll_id, doc_id),
+                (coll_uuid, doc_id),
             )
             deleted = cur.rowcount or 0
     return deleted
@@ -45,15 +46,65 @@ def _delete_collection(connection_string: str, collection_name: str) -> int:
     dsn = _psycopg_conn_str(connection_string)
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM langchain_pg_collection WHERE name = %s", (collection_name,))
+            cur.execute("SELECT uuid FROM langchain_pg_collection WHERE name = %s", (collection_name,))
             row = cur.fetchone()
             if not row:
                 return 0
-            coll_id = row[0]
-            cur.execute("DELETE FROM langchain_pg_embedding WHERE collection_id = %s", (coll_id,))
+            coll_uuid = row[0]
+            cur.execute("DELETE FROM langchain_pg_embedding WHERE collection_id = %s", (coll_uuid,))
             deleted = cur.rowcount or 0
-            cur.execute("DELETE FROM langchain_pg_collection WHERE id = %s", (coll_id,))
+            cur.execute("DELETE FROM langchain_pg_collection WHERE uuid = %s", (coll_uuid,))
     return deleted
+
+
+def _table_exists(conn, table_name: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM information_schema.tables
+              WHERE table_name = %s
+            )
+            """,
+            (table_name,),
+        )
+        return bool(cur.fetchone()[0])
+
+
+def ensure_collection(connection_string: str, collection_name: str) -> Dict[str, Any]:
+    """Ensure the collection row exists; do not attempt to create tables.
+    Returns a dict with health info and whether a collection row was created.
+    """
+    info: Dict[str, Any] = {"db_ok": False, "vector_ext": False, "collections_table": False, "embeddings_table": False, "collection_exists": False, "collection_created": False}
+    dsn = _psycopg_conn_str(connection_string)
+    try:
+        with psycopg.connect(dsn) as conn:
+            info["db_ok"] = True
+            with conn.cursor() as cur:
+                cur.execute("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+                info["vector_ext"] = bool(cur.fetchone()[0])
+
+            info["collections_table"] = _table_exists(conn, "langchain_pg_collection")
+            info["embeddings_table"] = _table_exists(conn, "langchain_pg_embedding")
+
+            if info["collections_table"]:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1 FROM langchain_pg_collection WHERE name = %s", (collection_name,))
+                    row = cur.fetchone()
+                    if row:
+                        info["collection_exists"] = True
+                    else:
+                        # Insert collection row with a generated uuid
+                        coll_uuid = str(uuid.uuid4())
+                        cur.execute(
+                            "INSERT INTO langchain_pg_collection (uuid, name, cmetadata) VALUES (%s, %s, '{}'::jsonb)",
+                            (coll_uuid, collection_name),
+                        )
+                        info["collection_created"] = True
+    except Exception as e:
+        info["error"] = str(e)
+    return info
 
 
 def load_and_process_pdfs(mode: str = "update") -> Dict[str, Any]:
@@ -79,7 +130,7 @@ def load_and_process_pdfs(mode: str = "update") -> Dict[str, Any]:
         embedding_function=embeddings,
     )
 
-    summary = {"mode": mode, "files": len(files), "deleted": 0, "added_chunks": 0, "processed": 0}
+    summary: Dict[str, Any] = {"mode": mode, "files": len(files), "deleted": 0, "added_chunks": 0, "processed": 0, "errors": []}
 
     if mode == "full" and files:
         deleted = _delete_collection(DATABASE_URL, COLLECTION_NAME)
@@ -93,9 +144,20 @@ def load_and_process_pdfs(mode: str = "update") -> Dict[str, Any]:
                 h.update(chunk)
         doc_id = h.hexdigest()
 
-        # Load one PDF
-        loader = UnstructuredPDFLoader(str(file_path))
-        docs = loader.load()
+        # Load one PDF with Unstructured; fallback to PyPDFLoader on failure
+        try:
+            loader = UnstructuredPDFLoader(str(file_path))
+            docs = loader.load()
+        except Exception as e_un:
+            try:
+                loader = PyPDFLoader(str(file_path))
+                docs = loader.load()
+            except Exception as e_py:
+                summary["errors"].append({
+                    "file": str(file_path),
+                    "error": f"Unstructured failed: {e_un}; PyPDF failed: {e_py}",
+                })
+                continue
 
         # Enrich metadata
         for d in docs:
@@ -105,7 +167,14 @@ def load_and_process_pdfs(mode: str = "update") -> Dict[str, Any]:
             md["source_filename"] = Path(file_path).name
             d.metadata = md
 
-        chunks = text_splitter.split_documents(docs)
+        try:
+            chunks = text_splitter.split_documents(docs)
+        except Exception as e_chunk:
+            summary["errors"].append({
+                "file": str(file_path),
+                "error": f"Chunking failed: {e_chunk}",
+            })
+            continue
 
         if mode == "update":
             summary["deleted"] += _delete_by_doc_id(DATABASE_URL, COLLECTION_NAME, doc_id)

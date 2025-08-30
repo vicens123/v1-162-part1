@@ -196,11 +196,19 @@ function App() {
     Array.from(selectedFiles).forEach((file) => formData.append('files', file));
     try {
       const response = await fetch(UPLOAD_URL, { method: 'POST', body: formData });
-      if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+      if (!response.ok) {
+        let detail = `Upload failed: ${response.status}`;
+        try { const j = await response.json(); if (j?.detail) detail = j.detail; } catch {}
+        throw new Error(detail);
+      }
       await response.json();
       // Trigger reingest in update mode to avoid duplicates
       const ingest = await fetch(`${INGEST_URL}?mode=update`, { method: 'POST' });
-      if (!ingest.ok) throw new Error(`Ingest failed: ${ingest.status}`);
+      if (!ingest.ok) {
+        let detail = `Ingest failed: ${ingest.status}`;
+        try { const j = await ingest.json(); if (j?.detail) detail = j.detail; } catch {}
+        throw new Error(detail);
+      }
       const data = await ingest.json();
       setIngestInfo(`Reingesta (update) completada: archivos=${data.files}, chunks=${data.added_chunks}, borrados=${data.deleted}`);
       setSelectedFiles(null);
@@ -220,7 +228,11 @@ function App() {
     setReindexing(true);
     try {
       const res = await fetch(`${INGEST_URL}?mode=${mode}`, { method: 'POST' });
-      if (!res.ok) throw new Error(`Ingest failed: ${res.status}`);
+      if (!res.ok) {
+        let detail = `Ingest failed: ${res.status}`;
+        try { const j = await res.json(); if (j?.detail) detail = j.detail; } catch {}
+        throw new Error(detail);
+      }
       const data = await res.json();
       setIngestInfo(`Reindex (${mode}) ok: archivos=${data.files}, chunks=${data.added_chunks}, borrados=${data.deleted}`);
     } catch (e: any) {
@@ -294,13 +306,14 @@ function App() {
                 accept=".pdf"
                 multiple
                 onChange={(e) => setSelectedFiles(e.target.files)}
+                disabled={uploading}
               />
               <button
                 className="ml-2 mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
                 onClick={handleUploadFiles}
                 disabled={uploading || !selectedFiles || selectedFiles.length === 0}
               >
-                {uploading ? 'Subiendo…' : 'Upload PDFs'}
+                {uploading ? (<><Spinner />Subiendo…</>) : 'Upload PDFs'}
               </button>
               <div className="mt-4">
                 <div className="text-sm font-semibold mb-2">Reindexar</div>
