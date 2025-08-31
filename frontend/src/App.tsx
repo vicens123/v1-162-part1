@@ -139,6 +139,7 @@ function App() {
     try {
       await fetchEventSource(STREAM_URL, {
         method: 'POST',
+        openWhenHidden: true,
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',

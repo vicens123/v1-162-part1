@@ -1,0 +1,30 @@
+# VCS
+.git
+.gitignore
+
+# Python caches
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Node
+frontend/node_modules/
+node_modules/
+
+# Build artifacts
+dist/
+build/
+.DS_Store
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Local data
+pdf-documents/*
+!pdf-documents/.gitkeep
+
+# Environment
+.env
+

@@ -51,3 +51,11 @@ def test_rag_chain_response(retriever, llm):
     assert "sources" in result, "❌ Falta el campo 'sources' en la salida."
     assert isinstance(result["sources"], list), "❌ 'sources' debe ser una lista."
 
+# Nuevo test para MultiQueryRetriever
+from app.rag_chain import multiquery
+from langchain.retrievers.multi_query import MultiQueryRetriever
+
+def test_multiquery_instance():
+    assert multiquery is not None
+    assert isinstance(multiquery, MultiQueryRetriever)
+

@@ -10,10 +10,13 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnableParallel, RunnableMap
 from langchain_openai import ChatOpenAI
+from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain_core.retrievers import BaseRetriever
 
 from app.retriever import get_retriever
 
 
+# 1) Tipo de entrada para LangServe / tu API
 # 1) Tipo de entrada para LangServe / tu API
 class RagInput(TypedDict):
     question: str
@@ -75,6 +78,18 @@ def _doc_to_source_info(doc: Document) -> dict:
     }
 
 
+# Fallback retriever para inicialización segura del módulo (no consulta DB)
+class _NoopRetriever(BaseRetriever):
+    def get_relevant_documents(self, query: str, *, run_manager=None):
+        return []
+    async def aget_relevant_documents(self, query: str, *, run_manager=None):
+        return []
+
+
+# Instancia global exportada para tests; se redefinirá al construir la cadena real
+multiquery: MultiQueryRetriever | None = None
+
+
 # 6) Cadena RAG compatible con LangServe (answer + sources)
 def create_rag_chain(retriever=None, llm=None):
     # LLM con streaming (inyectable para tests; configurable por env)
@@ -88,11 +103,23 @@ def create_rag_chain(retriever=None, llm=None):
 
     # Retriever inyectable; si no se pasa, usamos el por defecto
     if retriever is None:
-        retriever = get_retriever()
+        try:
+            retriever = get_retriever()
+        except Exception:
+            # En caso de no tener DB configurada, evitamos romper la importación
+            retriever = _NoopRetriever()
+
+    # MultiQueryRetriever para enriquecer consultas
+    global multiquery
+    try:
+        multiquery = MultiQueryRetriever.from_llm(retriever=retriever, llm=llm)
+    except Exception:
+        # Último recurso: usar noop retriever
+        multiquery = MultiQueryRetriever.from_llm(retriever=_NoopRetriever(), llm=llm)
 
     # Paso A: en paralelo → recuperar docs y pasar la pregunta
     initial = RunnableParallel(
-        raw_docs=(itemgetter("question") | retriever),
+        raw_docs=(itemgetter("question") | multiquery),
         question=itemgetter("question"),
     )
 
