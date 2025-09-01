@@ -7,8 +7,8 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - db
-    # Carga variables desde .env y sobreescribe la URL para resolver el host 'db'
+      db:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -20,14 +20,19 @@ services:
     container_name: pgvector-db
     restart: always
     ports:
-      - "5433:5432"  # Puerto externo cambiado a 5433 para evitar conflicto
+      - "5433:5432"
     environment:
       POSTGRES_DB: database164
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./scripts/init_chat_tables.sql:/docker-entrypoint-initdb.d/01_init_chat_tables.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d database164"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:
-
