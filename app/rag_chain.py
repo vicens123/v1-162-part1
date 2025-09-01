@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from operator import itemgetter
-from typing import TypedDict
+from typing import TypedDict, Optional
 
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
@@ -12,14 +12,16 @@ from langchain_core.runnables import RunnableLambda, RunnableParallel, RunnableM
 from langchain_openai import ChatOpenAI
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_core.retrievers import BaseRetriever
+from langchain.memory import ConversationBufferWindowMemory
 
 from app.retriever import get_retriever
+from app.chat_history import chat_history_manager
 
 
-# 1) Tipo de entrada para LangServe / tu API
 # 1) Tipo de entrada para LangServe / tu API
 class RagInput(TypedDict):
     question: str
+    session_id: Optional[str]  # Nuevo campo para chat history
 
 
 # 2) Prompt central (¡nombre consistente!)
@@ -30,6 +32,10 @@ Reglas:
 2) Si hay información suficiente en el CONTEXTO para responder, contesta en español de forma directa y concisa (1–3 frases). No hace falta citar literalmente: puedes resumir fielmente.
 3) Si no hay información suficiente en el CONTEXTO para responder, escribe EXACTAMENTE: No lo sé
 4) No inventes ni añadas notas, advertencias, fuentes ni epílogos.
+5) Si hay HISTORIAL de conversación, úsalo para dar contexto pero responde basándote en el CONTEXTO actual.
+
+HISTORIAL de conversación:
+{chat_history}
 
 CONTEXTO:
 {context}
@@ -64,6 +70,7 @@ def _pack_with_context(x: dict) -> dict:
         "question": x["question"],
         "context": format_docs(raw_docs),
         "raw_docs": raw_docs,
+        "chat_history": x.get("chat_history", ""),
     }
 
 
@@ -78,6 +85,29 @@ def _doc_to_source_info(doc: Document) -> dict:
     }
 
 
+# 6) Obtener historial de chat si existe session_id
+def _get_chat_history(session_id: Optional[str]) -> str:
+    if not session_id:
+        return ""
+    
+    try:
+        history = chat_history_manager.get_session_history(session_id)
+        messages = history.messages
+        if not messages:
+            return ""
+        
+        # Formatear historial para el prompt
+        formatted_history = []
+        for msg in messages[-10:]:  # Últimos 10 mensajes
+            role = "Usuario" if msg.type == "human" else "Asistente"
+            formatted_history.append(f"{role}: {msg.content}")
+        
+        return "\n".join(formatted_history)
+    except Exception as e:
+        print(f"Error getting chat history: {e}")
+        return ""
+
+
 # Fallback retriever para inicialización segura del módulo (no consulta DB)
 class _NoopRetriever(BaseRetriever):
     def get_relevant_documents(self, query: str, *, run_manager=None):
@@ -90,57 +120,68 @@ class _NoopRetriever(BaseRetriever):
 multiquery: MultiQueryRetriever | None = None
 
 
-# 6) Cadena RAG compatible con LangServe (answer + sources)
-def create_rag_chain(retriever=None, llm=None):
+# 7) Cadena RAG compatible con LangServe (answer + sources) + Chat History
+def create_rag_chain(retriever=None, llm=None, session_id: Optional[str] = None):
     # LLM con streaming (inyectable para tests; configurable por env)
     if llm is None:
         llm = ChatOpenAI(
             model=os.getenv("OPENAI_MODEL", "gpt-4o"),
             temperature=0,
             streaming=True,
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
         )
-
-    # Retriever inyectable; si no se pasa, usamos el por defecto
+    
+    # Obtener historial de chat si hay session_id
+    chat_history = _get_chat_history(session_id)
+    
+    # Retriever (inyectable para tests)
     if retriever is None:
-        try:
-            retriever = get_retriever()
-        except Exception:
-            # En caso de no tener DB configurada, evitamos romper la importación
-            retriever = _NoopRetriever()
-
-    # MultiQueryRetriever para enriquecer consultas
-    global multiquery
-    try:
-        multiquery = MultiQueryRetriever.from_llm(retriever=retriever, llm=llm)
-    except Exception:
-        # Último recurso: usar noop retriever
-        multiquery = MultiQueryRetriever.from_llm(retriever=_NoopRetriever(), llm=llm)
-
-    # Paso A: en paralelo → recuperar docs y pasar la pregunta
-    initial = RunnableParallel(
-        raw_docs=(itemgetter("question") | multiquery),
-        question=itemgetter("question"),
+        retriever = get_retriever()
+    
+    # Cadena principal con historial integrado
+    chain = (
+        RunnableParallel({
+            "question": itemgetter("question"),
+            "raw_docs": retriever,
+            "chat_history": lambda x: chat_history,
+        })
+        | RunnableLambda(_pack_with_context)
+        | rag_prompt
+        | llm
+        | StrOutputParser()
     )
+    
+    # Función para guardar mensajes en el historial
+    def _save_to_history(input_data: dict, output: str):
+        if session_id:
+            try:
+                history = chat_history_manager.get_session_history(session_id)
+                # Guardar pregunta del usuario
+                history.add_user_message(input_data["question"])
+                # Guardar respuesta del asistente
+                history.add_ai_message(output)
+            except Exception as e:
+                print(f"Error saving to chat history: {e}")
+        return output
+    
+    # Cadena final con guardado de historial
+    final_chain = chain | RunnableLambda(_save_to_history)
+    
+    return final_chain
 
-    # Paso B: añadir 'context' (texto) y conservar 'raw_docs'
-    with_context = initial | RunnableLambda(_pack_with_context)
 
-    # Paso C: en paralelo → generar respuesta y preparar fuentes
-    rag_chain = (
-        with_context
-        | RunnableParallel(
-            # Respuesta del LLM (prompt → llm → parser)
-            answer=(
-                RunnableMap({"question": itemgetter("question"), "context": itemgetter("context")})
-                | rag_prompt
-                | llm
-                | StrOutputParser()
-            ),
-            # Fuentes para la UI (no dependen del LLM)
-            sources=(itemgetter("raw_docs") | RunnableLambda(lambda docs: [_doc_to_source_info(d) for d in docs])),
-        )
-    )
+# 8) Función para crear nueva sesión de chat
+def create_chat_session(user_id: Optional[str] = None, title: Optional[str] = None) -> str:
+    """Crear nueva sesión de chat y retornar session_id"""
+    return chat_history_manager.create_session(user_id, title)
 
-    # Para LangServe: tipado de entrada
-    return rag_chain.with_types(input_type=RagInput)
+
+# 9) Función para obtener sesiones de usuario
+def get_user_sessions(user_id: str) -> list[dict]:
+    """Obtener todas las sesiones de chat de un usuario"""
+    return chat_history_manager.get_user_sessions(user_id)
+
+
+# 10) Función para eliminar sesión
+def delete_chat_session(session_id: str) -> bool:
+    """Eliminar sesión de chat y todos sus mensajes"""
+    return chat_history_manager.delete_session(session_id)
