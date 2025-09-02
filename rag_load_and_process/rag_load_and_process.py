@@ -102,41 +102,63 @@ def ensure_collection(connection_string: str, collection_name: str) -> Dict[str,
                             (coll_uuid, collection_name),
                         )
                         info["collection_created"] = True
+                        conn.commit()  # Añadir commit
     except Exception as e:
+        print(f"ERROR en ensure_collection: {e}")  # Debug
         info["error"] = str(e)
     return info
 
 
 def load_and_process_pdfs(mode: str = "update") -> Dict[str, Any]:
-    """Ingest PDFs from ./pdf-documents with per-file dedup.
-
-    mode:
-      - 'full': delete entire collection, then ingest all
-      - 'update': delete by doc_id per file, then add
-      - 'append': just add
-    Returns a summary dict.
-    """
+    """Ingest PDFs from ./pdf-documents with per-file dedup."""
     assert mode in {"full", "update", "append"}
+    
+    # DEBUG: Imprimir variables de entorno
+    print(f"DEBUG: DATABASE_URL = {os.getenv('DATABASE_URL')}")
+    print(f"DEBUG: OPENAI_API_KEY = {os.getenv('OPENAI_API_KEY')[:20]}..." if os.getenv('OPENAI_API_KEY') else "DEBUG: OPENAI_API_KEY = None")
+    print(f"DEBUG: COLLECTION_NAME = {COLLECTION_NAME}")
+    
+    # AÑADIR ESTA LÍNEA: Asegurar que la colección existe ANTES de crear vectorstore
+    print("DEBUG: Llamando a ensure_collection...")
+    collection_result = ensure_collection(DATABASE_URL, COLLECTION_NAME)
+    print(f"DEBUG: ensure_collection resultado: {collection_result}")
+    
+    print("DEBUG: Antes del delay...")
+    import time
+    time.sleep(1)
+    print("DEBUG: Delay de 1 segundo completado")
+    
+    print("DEBUG: Antes de crear vectorstore...")
     pdf_dir = Path("./pdf-documents").resolve()
     files = sorted(pdf_dir.glob("**/*.pdf"))
     print(f"📄 PDFs encontrados: {len(files)} archivos en {pdf_dir}")
 
+    print("DEBUG: Creando embeddings...")
     embeddings = OpenAIEmbeddings(model=EMBEDDINGS_MODEL)
     text_splitter = SemanticChunker(embeddings=embeddings)
 
+    print("DEBUG: Creando vectorstore...")
     vectorstore = PGVector(
         collection_name=COLLECTION_NAME,
         connection_string=DATABASE_URL,
         embedding_function=embeddings,
     )
+    print("DEBUG: Vectorstore creado exitosamente")
 
     summary: Dict[str, Any] = {"mode": mode, "files": len(files), "deleted": 0, "added_chunks": 0, "processed": 0, "errors": []}
 
     if mode == "full" and files:
+        print("DEBUG: Modo full, eliminando colección...")
         deleted = _delete_collection(DATABASE_URL, COLLECTION_NAME)
         summary["deleted"] += deleted
+        
+        # AÑADIR ESTA LÍNEA: Recrear la colección después de eliminar
+        print("DEBUG: Recreando colección después de eliminar...")
+        ensure_collection(DATABASE_URL, COLLECTION_NAME)
+        time.sleep(1)  # Delay adicional para sincronización
 
     for file_path in files:
+        print(f"DEBUG: Procesando archivo: {file_path}")
         # Compute stable doc_id based on file content
         h = hashlib.sha256()
         with open(file_path, "rb") as f:
@@ -180,6 +202,7 @@ def load_and_process_pdfs(mode: str = "update") -> Dict[str, Any]:
             summary["deleted"] += _delete_by_doc_id(DATABASE_URL, COLLECTION_NAME, doc_id)
 
         if chunks:
+            print(f"DEBUG: Añadiendo {len(chunks)} chunks al vectorstore...")
             vectorstore.add_documents(chunks)
             summary["added_chunks"] += len(chunks)
         summary["processed"] += 1

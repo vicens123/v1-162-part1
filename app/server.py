@@ -19,12 +19,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from langserve import add_routes
 
-from app.rag_chain import (
-    create_chat_session,
-    create_rag_chain,
-    delete_chat_session,
-    get_user_sessions,
-)
+from app.rag_chain import create_rag_chain
+from app.chat_history import chat_history_manager
 from app.retriever import get_retriever
 from rag_load_and_process.rag_load_and_process import (
     ensure_collection,
@@ -138,38 +134,36 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):
 
 @app.post("/admin/ingest")
 async def admin_ingest(mode: str = "update"):
-    """
-    Reingesta de PDFs con diferentes modos de operación.
-    
-    Args:
-        mode: Modo de ingesta ('full', 'update', 'append')
-        
-    Returns:
-        Dict con estado de la operación y resultados
-        
-    Raises:
-        HTTPException: Si hay errores en la ingesta
-    """
+    """Reingesta de PDFs con diferentes modos de operación."""
     try:
-        # Asegurar que la colección exista antes de ingestar
+        # Debug: verificar colección
+        print("DEBUG: Verificando colección...")
         collection = ensure_collection(
             os.getenv("DATABASE_URL"), 
             os.getenv("COLLECTION_NAME", "rag_collection")
         )
+        print(f"DEBUG: Colección resultado: {collection}")
+        
+        # Debug: verificar que la colección esté lista
+        if not collection.get("collection_exists"):
+            print("DEBUG: Colección no existe, creando...")
+        
         result = load_and_process_pdfs(mode=mode)
+        print(f"DEBUG: Resultado ingesta: {result}")
+        
         return {
             "status": "ok", 
             "collection": collection, 
             **result
         }
-    except AssertionError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"DEBUG ERROR: {e}")
+        import traceback
+        print(f"TRACEBACK: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500, 
             detail=f"Error en ingesta: {e}"
         )
-
 
 # ============================================================================
 # ENDPOINTS DE MONITOREO Y DEBUG
@@ -233,35 +227,29 @@ async def debug_retrieve(question: str):
 # ============================================================================
 
 @app.post("/chat/session")
-async def create_chat_session(user_id: str = None, title: str = None):
-    """
-    Crear nueva sesión de chat.
-    
-    Args:
-        user_id: Identificador del usuario (opcional)
-        title: Título de la sesión (opcional)
-        
-    Returns:
-        Dict con session_id y estado
-        
-    Raises:
-        HTTPException: Si hay errores al crear la sesión
-    """
+def create_session(user_id: str = None, title: str = None):
+    """Crear nueva sesión de chat"""
     try:
-        session_id = create_chat_session(user_id, title)
-        return {
-            "session_id": session_id, 
-            "status": "created"
-        }
+        # Debug: imprimir parámetros
+        print(f"DEBUG: user_id={user_id}, title={title}")
+        
+        # Debug: verificar que chat_history_manager existe
+        print(f"DEBUG: chat_history_manager type: {type(chat_history_manager)}")
+        
+        session_id = chat_history_manager.create_session(user_id, title)
+        print(f"DEBUG: session_id created: {session_id}")
+        
+        return {"session_id": session_id, "status": "created"}
     except Exception as e:
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Error creating session: {e}"
-        )
+        # Debug: imprimir el error completo
+        import traceback
+        print(f"ERROR COMPLETO: {e}")
+        print(f"TRACEBACK: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error creating session: {e}")
 
 
 @app.get("/chat/sessions/{user_id}")
-async def get_user_chat_sessions(user_id: str):
+def get_user_chat_sessions(user_id: str):
     """
     Obtener todas las sesiones de chat de un usuario.
     
@@ -275,7 +263,7 @@ async def get_user_chat_sessions(user_id: str):
         HTTPException: Si hay errores al obtener las sesiones
     """
     try:
-        sessions = get_user_sessions(user_id)
+        sessions = chat_history_manager.get_user_sessions(user_id)
         return {"sessions": sessions}
     except Exception as e:
         raise HTTPException(
@@ -285,7 +273,7 @@ async def get_user_chat_sessions(user_id: str):
 
 
 @app.delete("/chat/session/{session_id}")
-async def delete_chat_session_endpoint(session_id: str):
+def delete_chat_session_endpoint(session_id: str):
     """
     Eliminar sesión de chat y todos sus mensajes.
     
@@ -299,7 +287,7 @@ async def delete_chat_session_endpoint(session_id: str):
         HTTPException: Si la sesión no existe o hay errores
     """
     try:
-        success = delete_chat_session(session_id)
+        success = chat_history_manager.delete_session(session_id)
         if success:
             return {
                 "status": "deleted", 
@@ -318,7 +306,7 @@ async def delete_chat_session_endpoint(session_id: str):
 
 
 @app.get("/chat/session/{session_id}/history")
-async def get_chat_session_history(session_id: str):
+def get_chat_session_history(session_id: str):
     """
     Obtener historial completo de una sesión de chat.
     
@@ -332,8 +320,6 @@ async def get_chat_session_history(session_id: str):
         HTTPException: Si hay errores al obtener el historial
     """
     try:
-        from app.chat_history import chat_history_manager
-        
         history = chat_history_manager.get_session_history(session_id)
         messages = history.messages
         
@@ -358,7 +344,7 @@ async def get_chat_session_history(session_id: str):
 
 
 @app.get("/chat/health")
-async def chat_health():
+def chat_health():
     """
     Healthcheck específico para funcionalidades de chat.
     
@@ -367,12 +353,10 @@ async def chat_health():
     """
     try:
         # Verificar que las tablas de chat existen
-        from app.chat_history import chat_history_manager
-        
         # Intentar crear una sesión de prueba
-        test_session_id = create_chat_session("test_user", "test_session")
+        test_session_id = chat_history_manager.create_session("test_user", "test_session")
         # Eliminar la sesión de prueba
-        delete_chat_session(test_session_id)
+        chat_history_manager.delete_session(test_session_id)
         
         return {
             "status": "healthy",

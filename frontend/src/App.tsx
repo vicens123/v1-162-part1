@@ -1,6 +1,6 @@
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import ChatSessions from './components/ChatSessions';
 import './App.css';
 
 type Source = {
@@ -16,7 +16,7 @@ type Message = {
   sources?: Source[];
 };
 
-const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:8080/rag').replace(/\/$/, '');
+const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:8000/rag').replace(/\/$/, '');
 const STREAM_URL = `${API_BASE}/stream`;
 const INVOKE_URL = `${API_BASE}/invoke`;
 
@@ -26,6 +26,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const streamingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
   const [reindexing, setReindexing] = useState(false);
@@ -36,6 +37,11 @@ function App() {
     if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
     return 'system';
   });
+
+  // Estados para chat history
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
 
   // Tailwind darkMode: 'class' — aplica tema según preferencia o sistema
   useEffect(() => {
@@ -63,7 +69,7 @@ function App() {
       const u = new URL(API_BASE);
       return `${u.protocol}//${u.host}/rag/static`;
     } catch {
-      return 'http://localhost:8080/rag/static';
+      return 'http://localhost:8000/rag/static';
     }
   }, []);
 
@@ -72,11 +78,15 @@ function App() {
       const u = new URL(API_BASE);
       return `${u.protocol}//${u.host}`;
     } catch {
-      return 'http://localhost:8080';
+      return 'http://localhost:8000';
     }
   }, []);
   const UPLOAD_URL = `${ORIGIN}/upload`;
   const INGEST_URL = `${ORIGIN}/admin/ingest`;
+  
+  // URLs para chat history
+  const CHAT_SESSION_URL = `${ORIGIN}/chat/session`;
+  const CHAT_SESSIONS_URL = `${ORIGIN}/chat/sessions`;
 
   const Spinner = () => (
     <svg
@@ -108,6 +118,66 @@ function App() {
     [backendStaticBase]
   );
 
+  // Funciones para chat history
+  const createNewSession = useCallback(async () => {
+    try {
+      setSessionsLoading(true);
+      const response = await fetch(CHAT_SESSION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          user_id: 'default_user', 
+          title: `Sesión ${new Date().toLocaleString('es-ES')}` 
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Error creating session');
+      
+      const data = await response.json();
+      const newSession = {
+        session_id: data.session_id,
+        title: data.title || `Sesión ${new Date().toLocaleString('es-ES')}`,
+        created_at: new Date().toISOString()
+      };
+      
+      setSessions(prev => [newSession, ...prev]);
+      setActiveSessionId(newSession.session_id);
+      setMessages([]); // Limpiar mensajes al crear nueva sesión
+    } catch (e: any) {
+      console.error('Error creating session:', e);
+      setError('Error al crear nueva sesión');
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, [CHAT_SESSION_URL]);
+
+  const deleteSession = useCallback(async (sessionId: string) => {
+    try {
+      const response = await fetch(`${CHAT_SESSION_URL}/${sessionId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) throw new Error('Error deleting session');
+      
+      setSessions(prev => prev.filter(s => s.session_id !== sessionId));
+      
+      // Si era la sesión activa, limpiar
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null);
+        setMessages([]);
+      }
+    } catch (e: any) {
+      console.error('Error deleting session:', e);
+      setError('Error al eliminar sesión');
+    }
+  }, [CHAT_SESSION_URL, activeSessionId]);
+
+  const selectSession = useCallback((sessionId: string) => {
+    setActiveSessionId(sessionId);
+    // Aquí podrías cargar el historial de la sesión si lo implementas
+    setMessages([]); // Por ahora, limpiar mensajes
+  }, []);
+
   const handleSend = useCallback(async () => {
     const question = input.trim();
     if (!question || loading) return;
@@ -137,6 +207,11 @@ function App() {
     };
 
     try {
+      // Modificar el body para incluir session_id si existe
+      const requestBody = activeSessionId 
+        ? { input: { question, session_id: activeSessionId } }
+        : { input: { question } };
+
       await fetchEventSource(STREAM_URL, {
         method: 'POST',
         openWhenHidden: true,
@@ -145,7 +220,7 @@ function App() {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
         },
-        body: JSON.stringify({ input: { question } }),
+        body: JSON.stringify(requestBody),
         onopen: async (res) => {
           if (res.ok) return; // ok
           throw new Error(`Stream open failed: ${res.status} ${res.statusText}`);
@@ -154,28 +229,35 @@ function App() {
           gotStream = true;
           const { data } = ev;
           if (!data) return;
-          // Intentar parsear JSON, si no, tratarlo como token de texto
+          
           try {
             const obj = JSON.parse(data);
-            // Heurística: buscar campos típicos
-            // 1) Fragmentos de respuesta como texto incremental
-            const token = obj.token ?? obj.data ?? obj.chunk ?? obj.answer;
-            if (typeof token === 'string') {
-              accumAnswer += token;
-              updateAssistant({ content: accumAnswer });
+            
+            // Extraer el content del objeto
+            const content = obj.content;
+            if (typeof content === 'string') {
+              // Simular streaming dividiendo la respuesta en palabras
+              const words = content.split(' ');
+              let currentText = '';
+              
+              // Limpiar cualquier timeout anterior
+              if (streamingTimeoutRef.current) {
+                clearTimeout(streamingTimeoutRef.current);
+              }
+              
+              words.forEach((word, index) => {
+                setTimeout(() => {
+                  currentText += (index > 0 ? ' ' : '') + word;
+                  updateAssistant({ content: currentText });
+                }, index * 100); // 100ms entre palabras
+              });
             }
-            // 2) Fuentes en un campo conocido
+            
+            // También manejar otros campos si es necesario
             const srcs = obj.sources || (obj.output && obj.output.sources);
             if (Array.isArray(srcs)) {
               finalSources = srcs as Source[];
               updateAssistant({ sources: finalSources });
-            }
-            // 3) Resultado final con answer completo
-            const final = obj.output || obj.final || obj.result;
-            if (final && typeof final.answer === 'string') {
-              accumAnswer = final.answer;
-              finalSources = final.sources;
-              updateAssistant({ content: accumAnswer, sources: finalSources });
             }
           } catch {
             // Texto plano
@@ -196,7 +278,7 @@ function App() {
         const res = await fetch(INVOKE_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input: { question } }),
+          body: JSON.stringify(requestBody),
         });
         if (!res.ok) throw new Error(`Invoke failed: ${res.status}`);
         const json = await res.json();
@@ -213,7 +295,7 @@ function App() {
       setLoading(false);
       abortRef.current = null;
     }
-  }, [input, loading]);
+  }, [input, loading, activeSessionId]);
 
   const handleUploadFiles = useCallback(async () => {
     if (!selectedFiles || uploading) return;
@@ -282,7 +364,7 @@ function App() {
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 flex flex-col transition-colors">
       <header className="bg-white/70 dark:bg-neutral-900/70 backdrop-blur text-neutral-900 dark:text-neutral-100 p-4 shadow-sm border-b border-neutral-200/60 dark:border-neutral-800/60 transition-colors">
         <div className="container mx-auto max-w-6xl flex items-center justify-between">
-          <div className="font-semibold">RAG from PDFs</div>
+          <div className="font-semibold">RAG from PDFs with Chat History</div>
           <button
             onClick={cycleTheme}
             className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded"
@@ -292,82 +374,97 @@ function App() {
           </button>
         </div>
       </header>
-      <main className="flex-grow container mx-auto p-4 flex-col max-w-6xl">
-        <div className="flex-grow bg-white dark:bg-neutral-900 shadow overflow-hidden rounded-xl my-4 border border-neutral-200/70 dark:border-neutral-800/70 transition-colors">
-          <div className="p-4 space-y-3">
-            {messages.length === 0 && (
-              <div className="text-gray-500 text-sm">Haz una pregunta sobre los PDFs cargados.</div>
-            )}
-            {messages.map((m, i) => (
-              <div key={i} className={`p-3 rounded-lg transition-colors ${m.role === 'user' ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100'}`}>
-                <div className="text-xs mb-1 font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{m.role}</div>
-                <div className="whitespace-pre-wrap">{m.content}</div>
-                {/* Sources ocultos en la UI por petición */}
-              </div>
-            ))}
-          </div>
-          <div className="p-4 bg-neutral-100 dark:bg-neutral-800 transition-colors">
-            {error && <div className="text-red-600 dark:text-red-400 text-sm mb-2">{error}</div>}
-            {ingestInfo && <div className="text-green-700 dark:text-green-400 text-sm mb-2">{ingestInfo}</div>}
-            <textarea
-              className="form-textarea w-full p-2 border rounded text-neutral-900 dark:text-neutral-100 bg-white dark:bg-neutral-900 border-neutral-300 dark:border-neutral-700 resize-none h-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Escribe tu pregunta. Shift+Enter para nueva línea, Enter para enviar."
-              rows={3}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={loading}
-            />
-            <div className="flex items-center gap-2 mt-2">
-              <button
-                onClick={handleSend}
-                disabled={loading || !input.trim()}
-                className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors duration-150 ease-in-out"
-              >
-                {loading ? 'Enviando…' : 'Enviar'}
-              </button>
-              {loading && (
-                <button
-                  onClick={() => abortRef.current?.abort()}
-                  className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors text-sm"
-                >
-                  Cancelar
-                </button>
+      <main className="flex-grow flex">
+        {/* Sidebar de Sesiones */}
+        <ChatSessions
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSessionSelect={selectSession}
+          onSessionCreate={createNewSession}
+          onSessionDelete={deleteSession}
+          loading={sessionsLoading}
+        />
+        
+        {/* Chat Principal */}
+        <div className="flex-1 flex flex-col">
+          <div className="flex-grow bg-white dark:bg-neutral-900 shadow overflow-hidden border border-neutral-200/70 dark:border-neutral-800/70 transition-colors">
+            <div className="p-4 space-y-3">
+              {messages.length === 0 && (
+                <div className="text-gray-500 text-sm">
+                  {activeSessionId ? 'Haz una pregunta en esta sesión.' : 'Selecciona o crea una sesión para empezar.'}
+                </div>
               )}
+              {messages.map((m, i) => (
+                <div key={i} className={`p-3 rounded-lg transition-colors ${m.role === 'user' ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100'}`}>
+                  <div className="text-xs mb-1 font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{m.role}</div>
+                  <div className="whitespace-pre-wrap">{m.content}</div>
+                  {/* Sources ocultos en la UI por petición */}
+                </div>
+              ))}
             </div>
-            <div className="p-4 bg-neutral-50 dark:bg-neutral-900 mt-4 rounded transition-colors">
-              <div className="text-sm font-semibold mb-2">Subir PDFs</div>
-              <input
-                type="file"
-                accept=".pdf"
-                multiple
-                onChange={(e) => setSelectedFiles(e.target.files)}
-                disabled={uploading}
+            <div className="p-4 bg-neutral-100 dark:bg-neutral-800 transition-colors">
+              {error && <div className="text-red-600 dark:text-red-400 text-sm mb-2">{error}</div>}
+              {ingestInfo && <div className="text-green-700 dark:text-green-400 text-sm mb-2">{ingestInfo}</div>}
+              <textarea
+                className="form-textarea w-full p-2 border rounded text-neutral-900 dark:text-neutral-100 bg-white dark:bg-neutral-900 border-neutral-300 dark:border-neutral-700 resize-none h-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder={activeSessionId ? "Escribe tu pregunta. Shift+Enter para nueva línea, Enter para enviar." : "Crea una sesión para empezar a chatear."}
+                rows={3}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={loading || !activeSessionId}
               />
-              <button
-                className="mt-2 bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors"
-                onClick={handleUploadFiles}
-                disabled={uploading || !selectedFiles || selectedFiles.length === 0}
-              >
-                {uploading ? (<><Spinner />Subiendo…</>) : 'Upload PDFs'}
-              </button>
-              <div className="mt-4">
-                <div className="text-sm font-semibold mb-2">Reindexar</div>
+              <div className="flex items-center gap-2 mt-2">
                 <button
-                  className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors mr-2"
-                  onClick={() => handleReindex('update')}
-                  disabled={reindexing}
+                  onClick={handleSend}
+                  disabled={loading || !input.trim() || !activeSessionId}
+                  className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors duration-150 ease-in-out"
                 >
-                  {reindexing && reindexMode === 'update' ? (<><Spinner />Reindexando…</>) : 'Reindexar (update)'}
+                  {loading ? 'Enviando…' : 'Enviar'}
                 </button>
+                {loading && (
+                  <button
+                    onClick={() => abortRef.current?.abort()}
+                    className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors text-sm"
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
+              <div className="p-4 bg-neutral-50 dark:bg-neutral-900 mt-4 rounded transition-colors">
+                <div className="text-sm font-semibold mb-2">Subir PDFs</div>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  multiple
+                  onChange={(e) => setSelectedFiles(e.target.files)}
+                  disabled={uploading}
+                />
                 <button
-                  className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors"
-                  onClick={() => handleReindex('full')}
-                  disabled={reindexing}
-                  title="Elimina la colección y reingesta todo"
+                  className="mt-2 bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors"
+                  onClick={handleUploadFiles}
+                  disabled={uploading || !selectedFiles || selectedFiles.length === 0}
                 >
-                  {reindexing && reindexMode === 'full' ? (<><Spinner />Reindexando…</>) : 'Reindexar (full)'}
+                  {uploading ? (<><Spinner />Subiendo…</>) : 'Upload PDFs'}
                 </button>
+                <div className="mt-4">
+                  <div className="text-sm font-semibold mb-2">Reindexar</div>
+                  <button
+                    className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors mr-2"
+                    onClick={() => handleReindex('update')}
+                    disabled={reindexing}
+                  >
+                    {reindexing && reindexMode === 'update' ? (<><Spinner />Reindexando…</>) : 'Reindexar (update)'}
+                  </button>
+                  <button
+                    className="bg-neutral-700 hover:bg-neutral-800 text-white font-bold py-2 px-4 rounded disabled:opacity-50 transition-colors"
+                    onClick={() => handleReindex('full')}
+                    disabled={reindexing}
+                    title="Elimina la colección y reingesta todo"
+                  >
+                    {reindexing && reindexMode === 'full' ? (<><Spinner />Reindexando…</>) : 'Reindexar (full)'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -381,4 +478,3 @@ function App() {
 }
 
 export default App;
-
