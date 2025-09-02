@@ -65,6 +65,7 @@ def format_docs(docs: list[Document], max_words: int | None = None) -> str:
 
 # 4) Empaquetado del contexto manteniendo los docs crudos para 'sources'
 def _pack_with_context(x: dict) -> dict:
+    """Empaquetar contexto con documentos y historial de chat"""
     raw_docs: list[Document] = x["raw_docs"]
     return {
         "question": x["question"],
@@ -74,18 +75,7 @@ def _pack_with_context(x: dict) -> dict:
     }
 
 
-# 5) Conversión documento -> info de fuente para la UI
-def _doc_to_source_info(doc: Document) -> dict:
-    md = doc.metadata or {}
-    return {
-        "title": md.get("title") or md.get("file_name") or md.get("source") or "Documento",
-        "page": md.get("page") or md.get("page_number"),
-        "source": md.get("source") or md.get("path") or md.get("file_path") or md.get("url"),
-        "metadata": md,  # por si quieres mostrar más campos
-    }
-
-
-# 6) Obtener historial de chat si existe session_id
+# 5) Obtener historial de chat si existe session_id
 def _get_chat_history(session_id: Optional[str]) -> str:
     if not session_id:
         return ""
@@ -106,6 +96,17 @@ def _get_chat_history(session_id: Optional[str]) -> str:
     except Exception as e:
         print(f"Error getting chat history: {e}")
         return ""
+
+
+# 6) Conversión documento -> info de fuente para la UI
+def _doc_to_source_info(doc: Document) -> dict:
+    md = doc.metadata or {}
+    return {
+        "title": md.get("title") or md.get("file_name") or md.get("source") or "Documento",
+        "page": md.get("page") or md.get("page_number"),
+        "source": md.get("source") or md.get("path") or md.get("file_path") or md.get("url"),
+        "metadata": md,  # por si quieres mostrar más campos
+    }
 
 
 # Fallback retriever para inicialización segura del módulo (no consulta DB)
@@ -138,6 +139,25 @@ def create_rag_chain(retriever=None, llm=None, session_id: Optional[str] = None)
     if retriever is None:
         retriever = get_retriever()
     
+    # Función para guardar mensajes en el historial
+    def _save_to_history(output):
+        # Convertir a string si es un objeto
+        if hasattr(output, 'content'):
+            output_str = output.content
+        elif isinstance(output, dict) and 'content' in output:
+            output_str = output['content']
+        else:
+            output_str = str(output)
+        
+        if session_id:
+            try:
+                history = chat_history_manager.get_session_history(session_id)
+                # Guardar respuesta del asistente
+                history.add_ai_message(output_str)
+            except Exception as e:
+                print(f"Error saving to chat history: {e}")
+        return output_str
+    
     # Cadena principal con historial integrado
     chain = (
         RunnableLambda(lambda x: {
@@ -150,16 +170,6 @@ def create_rag_chain(retriever=None, llm=None, session_id: Optional[str] = None)
         | llm
         #| StrOutputParser()
     )
-    # Función para guardar mensajes en el historial
-    def _save_to_history(output: str):
-        if session_id:
-            try:
-                history = chat_history_manager.get_session_history(session_id)
-                # Guardar respuesta del asistente
-                history.add_ai_message(output)
-            except Exception as e:
-                print(f"Error saving to chat history: {e}")
-        return output
     
     # Cadena final con guardado de historial
     final_chain = chain | RunnableLambda(_save_to_history)

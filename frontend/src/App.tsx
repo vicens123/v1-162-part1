@@ -230,39 +230,75 @@ function App() {
           const { data } = ev;
           if (!data) return;
           
+          console.log("DEBUG: Raw data received:", data); // Debug
+          
+          // Intentar parsear como JSON primero
+          let obj;
+          let isJson = false;
+          
           try {
-            const obj = JSON.parse(data);
+            obj = JSON.parse(data);
+            isJson = true;
+            console.log("DEBUG: Parsed as JSON:", obj); // Debug
+          } catch (error) {
+            // Si no es JSON, tratar como texto plano
+            console.log("DEBUG: Not JSON, treating as plain text:", data); // Debug
+            obj = { content: data };
+            isJson = false;
+          }
+          
+          // Extraer el content del objeto
+          let content;
+          if (isJson && typeof obj === 'object' && obj.content !== undefined) {
+            content = obj.content;
+          } else if (isJson && typeof obj === 'string') {
+            // Si es JSON pero el resultado es un string, usarlo directamente
+            content = obj;
+          } else if (!isJson) {
+            // Si no es JSON, usar el texto plano
+            content = data;
+          } else {
+            content = undefined;
+          }
+          
+          console.log("DEBUG: Content extracted:", content, "Type:", typeof content); // Debug
+          
+          if (typeof content === 'string' && content.trim() !== '') {
+            // Simular streaming dividiendo la respuesta en palabras
+            const words = content.split(' ');
+            let currentText = '';
             
-            // Extraer el content del objeto
-            const content = obj.content;
-            if (typeof content === 'string') {
-              // Simular streaming dividiendo la respuesta en palabras
-              const words = content.split(' ');
-              let currentText = '';
-              
-              // Limpiar cualquier timeout anterior
-              if (streamingTimeoutRef.current) {
-                clearTimeout(streamingTimeoutRef.current);
-              }
-              
+            console.log("DEBUG: Words to stream:", words.length); // Debug
+            
+            // Limpiar cualquier timeout anterior
+            if (streamingTimeoutRef.current) {
+              clearTimeout(streamingTimeoutRef.current);
+            }
+            
+            // Solo hacer streaming si hay contenido
+            if (words.length > 0) {
               words.forEach((word, index) => {
-                setTimeout(() => {
+                streamingTimeoutRef.current = setTimeout(() => {
                   currentText += (index > 0 ? ' ' : '') + word;
+                  console.log("DEBUG: Streaming word", index, ":", word); // Debug
                   updateAssistant({ content: currentText });
                 }, index * 100); // 100ms entre palabras
               });
             }
-            
-            // También manejar otros campos si es necesario
+          } else if (content !== undefined && content !== null) {
+            console.log("DEBUG: Content is not string, using as is:", content); // Debug
+            updateAssistant({ content: String(content) });
+          } else {
+            console.log("DEBUG: Content is undefined/null, skipping"); // Debug
+          }
+          
+          // También manejar otros campos si es necesario (solo si es JSON)
+          if (isJson) {
             const srcs = obj.sources || (obj.output && obj.output.sources);
             if (Array.isArray(srcs)) {
               finalSources = srcs as Source[];
               updateAssistant({ sources: finalSources });
             }
-          } catch {
-            // Texto plano
-            accumAnswer += data;
-            updateAssistant({ content: accumAnswer });
           }
         },
         onerror: (err) => {

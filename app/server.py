@@ -26,7 +26,11 @@ from rag_load_and_process.rag_load_and_process import (
     ensure_collection,
     load_and_process_pdfs,
 )
+from pydantic import BaseModel
 
+class CreateSessionRequest(BaseModel):
+    user_id: str
+    title: str
 # ============================================================================
 # CONFIGURACIÓN DE ENTORNO
 # ============================================================================
@@ -227,19 +231,19 @@ async def debug_retrieve(question: str):
 # ============================================================================
 
 @app.post("/chat/session")
-def create_session(user_id: str = None, title: str = None):
+def create_session(request: CreateSessionRequest):
     """Crear nueva sesión de chat"""
     try:
         # Debug: imprimir parámetros
-        print(f"DEBUG: user_id={user_id}, title={title}")
+        print(f"DEBUG: user_id={request.user_id}, title={request.title}")
         
         # Debug: verificar que chat_history_manager existe
         print(f"DEBUG: chat_history_manager type: {type(chat_history_manager)}")
         
-        session_id = chat_history_manager.create_session(user_id, title)
+        session_id = chat_history_manager.create_session(request.user_id, request.title)
         print(f"DEBUG: session_id created: {session_id}")
         
-        return {"session_id": session_id, "status": "created"}
+        return {"session_id": session_id, "title": request.title, "user_id": request.user_id}
     except Exception as e:
         # Debug: imprimir el error completo
         import traceback
